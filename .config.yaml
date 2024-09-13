@@ -1,0 +1,13 @@
+general:
+  devid    : A0001
+  tz       : true
+  periodic : 60s
+
+broker:
+  host     : tcp://broker.emqx.io:1883
+  user     : 
+  pass     : 
+  qos      : 1
+  topic    : mqtt_rust
+  reconnect: 10s
+  retries  : 5
