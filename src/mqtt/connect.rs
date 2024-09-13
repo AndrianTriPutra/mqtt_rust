@@ -4,7 +4,7 @@ use std::time::Duration;
 use std::thread::sleep;
 use crate::Config;
 
-pub fn connecting(client_id: &str, config: &Config) -> mqtt::Client {
+pub fn connecting(client_id: &str, config: &Config) -> (mqtt::Client, mqtt::Receiver<Option<mqtt::Message>>) {
     let mut attempts = 1;
     loop {
         let create_opts = mqtt::CreateOptionsBuilder::new()
@@ -34,10 +34,11 @@ pub fn connecting(client_id: &str, config: &Config) -> mqtt::Client {
             .finalize();
 
         if cli.connect(conn_opts).is_ok() {
-            println!("successfully connected after trying {} times",attempts);
-            return cli;
+            println!("Successfully connected after trying {} times", attempts);
+            let rx = cli.start_consuming();
+            return (cli, rx); // Return both cli and rx as a tuple
         } else {
-            eprintln!("Unable to connect. Retrying... attempts {}",attempts);
+            eprintln!("Unable to connect. Retrying... attempts {}", attempts);
             sleep(config.broker.reconnect);
             attempts += 1;
             if attempts > config.broker.retries {
@@ -47,3 +48,4 @@ pub fn connecting(client_id: &str, config: &Config) -> mqtt::Client {
         }
     }
 }
+

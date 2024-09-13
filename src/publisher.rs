@@ -12,7 +12,7 @@ use std::{
 };
 
 pub fn publisher(config: &Config, client_id: String, topic:String){
-    let mut cli = mqtt::connect::connecting(&client_id, &config);
+    let (mut cli, _) = mqtt::connect::connecting(&client_id, &config);
     let mut counter = 0;
     let mut failed: i8 = 0;
 
@@ -32,7 +32,7 @@ pub fn publisher(config: &Config, client_id: String, topic:String){
 
             let unix = (ct.timestamp_micros()).to_string();
             let client_id = format!("{}/{}/{}", config.broker.topic, config.general.devid, unix);
-            cli = mqtt::connect::connecting(&client_id, &config);
+            (cli, _)  = mqtt::connect::connecting(&client_id, &config);
         }
 
         let sensors = vec![
