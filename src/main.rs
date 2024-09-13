@@ -1,15 +1,18 @@
-mod mqtt;
+
 use std::{
     process,
     time::Duration,
-    thread::sleep,
-    env
+    env,
+    fs::File,
+    io::Read
 };
 
-use chrono::prelude::*;
+mod gettime;
+mod mqtt;
+mod publisher;
+mod subscriber;
+
 use serde::{Serialize, Deserialize};
-use std::fs::File;
-use std::io::Read;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Config {
@@ -51,14 +54,6 @@ struct Data {
     data: Vec<Sensor>,
 }
 
-fn get_current_time(tz: bool) -> DateTime<FixedOffset> {
-    if tz {
-        Local::now().with_timezone(&Local::now().offset().fix())
-    } else {
-        Utc::now().with_timezone(&Utc.fix())
-    }
-}
-
 impl Config {
     pub fn load(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let mut file = File::open(path)?;
@@ -84,7 +79,7 @@ fn main() {
 
     let config = Config::load(&path).expect("Failed to read config file");
 
-    let ct = get_current_time(config.general.tz);
+    let ct = gettime::current_time(config.general.tz);
     let unix = (ct.timestamp_micros()).to_string();
     let client_id = format!("{}/{}/{}", config.broker.topic, config.general.devid, unix);
     let topic = format!("{}/{}/data", config.broker.topic, config.general.devid);
@@ -101,110 +96,15 @@ fn main() {
     println!("TOPIC : {}", topic);
     println!("============== MQTT ==============");
 
-
     if mode=="publisher"{
         println!("run publisher");
-        publisher(&config,client_id,topic)
+        publisher::publisher(&config,client_id,topic)
     }else if mode=="subscriber"{
         println!("run subscriber");
-        subscriber(&config,client_id,topic)
+        subscriber::subscriber(&config,client_id,topic)
     }else{
         eprintln!("mode not found");
         process::exit(1);
     }
     
-}
-
-
-fn publisher(config: &Config, client_id: String, topic:String){
-    let mut cli = mqtt::connect::connecting(&client_id, &config);
-    let mut counter = 0;
-    let mut failed: i8 = 0;
-
-    loop {
-        counter += 1;
-        let ct = get_current_time(config.general.tz);
-        let timestamp = ct.to_rfc3339();
-
-        if !cli.is_connected() {
-            failed += 1;
-            eprintln!("Client disconnected. Attempting to reconnect... Retry [{}]", failed);
-
-            if failed > config.broker.retries {
-                eprintln!("Exceeded maximum retries. Exiting...");
-                process::exit(1);
-            }
-
-            let unix = (ct.timestamp_micros()).to_string();
-            let client_id = format!("{}/{}/{}", config.broker.topic, config.general.devid, unix);
-            cli = mqtt::connect::connecting(&client_id, &config);
-        }
-
-        let sensors = vec![
-            Sensor {
-                sensor_id: 1,
-                temp: 15.1 + counter as f32,
-                rh: 25.5 + counter as f32,
-            },
-            Sensor {
-                sensor_id: 2,
-                temp: 25.1 + counter as f32,
-                rh: 55.5 + counter as f32,
-            },
-        ];
-
-        let payload = Data {
-            dev_id: config.general.devid.to_string(),
-            ts: timestamp,
-            data: sensors,
-        };
-
-        let content = serde_json::to_string_pretty(&payload).unwrap();
-        mqtt::publish::publish(&cli, &topic, &content, &config);
-
-        sleep(config.general.periodic);
-    }
-}
-
-
-fn subscriber(config: &Config,mut client_id: String, topic:String){
-    let mut cli = mqtt::connect::connecting(&client_id, &config);
-    let mut failed: i8 = 0;
-
-    let mut ct = get_current_time(config.general.tz);
-
-    let rx = cli.start_consuming();
-    mqtt::subscribe::subscribe(&cli,&topic,&config);
-    println!("Ready to Receive Message . . .");
-
-    for msg in rx.iter() {
-        if let Some(msg) = msg {
-            ct = get_current_time(config.general.tz);
-            let timestamp = ct.to_rfc3339();
-
-            println!("Received at [{}] topic {} with msg {}",timestamp,msg.topic(), msg.payload_str());
-        }else if !cli.is_connected() {
-            failed += 1;
-            eprintln!("Client disconnected. Attempting to reconnect... Retry [{}]", failed);
-
-            if failed > config.broker.retries {
-                eprintln!("Exceeded maximum retries. Exiting...");
-                process::exit(1);
-            }
-
-            let unix = (ct.timestamp_micros()).to_string();
-            client_id = format!("{}/{}", config.broker.topic, unix);
-            cli = mqtt::connect::connecting(&client_id, &config);
-            
-            println!("Resubscribe topics...");
-            mqtt::subscribe::subscribe(&cli,&topic,&config);
-        }
-    }
-
-    if cli.is_connected() {
-        println!("Disconnecting");
-        cli.unsubscribe(&topic).unwrap();
-        cli.disconnect(None).unwrap();
-    }
-    println!("Exiting");
 }
